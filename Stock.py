@@ -13,6 +13,7 @@ And has a buy method that is used to buy that stock
 
 """
 import datetime
+import pandas as pd
 
 
 class Stock:
@@ -23,12 +24,22 @@ class Stock:
       self.stockCode = stockCode
     
     def __str__(self):
-         return "{} - number owned: {}, total cost: {}".format(self.stockCode, self.numberOwned, self.totalCost)
+         return "{} - number owned: {}, total cost: ${:.2f}".format(self.stockCode, self.numberOwned, self.totalCost)
 
-      
-    def buy(self, numberBought, price, date = datetime.date.today()):
+    
+    # Buy a number of stocks at a price and save in the database     
+    def buy(self, numberBought, price, database, tableName, date = str(datetime.date.today())):
         self.numberOwned += numberBought
         self.totalCost += numberBought*price
-        ## Add method here to add to database
+        purchaseData = pd.DataFrame({"Stock_Code": [self.stockCode],
+                                     "Purchase_Date": [date],
+                                     "Number_Purchased": [numberBought],
+                                     "Price": [price],
+                                     "Total_Cost": [price*numberBought]})
+        database.addToDatabase(purchaseData, tableName)
     
+    
+    # Get the price of the stock at date. Default date is today.
+    def getPrice(self, date = str(datetime.date.today())):
+        pass
         
