@@ -7,38 +7,40 @@ Created: 28/11/2016
 import sqlite3
 import pandas as pd
 
+# Database class to create a new database at the file location given in databasePath.
+# Includes methods for creating tables, clearing and removing tables. Adding to and
+# querying the database.
 class Database():
-    
+    # Class initializer
     def __init__(self, databasePath):
       self.databasePath = databasePath
+      conn = sqlite3.connect(self.databasePath)
+      conn.close()
          
-    #createTable()
-    def createTable(self, tableName, rowList):
-        # function which creates the table (tableName) in the database db
+    # function which creates the table (tableName) with the columns in columnList
+    def createTable(self, tableName, columnList):
         conn = sqlite3.connect(self.databasePath)
         cursor = conn.cursor()        
         #Created database
-        sql_command = """ CREATE TABLE {} ({}) """.format(tableName, rowList)
-        print(sql_command)    
+        sql_command = """ CREATE TABLE {} ({}) """.format(tableName, columnList)
         cursor.execute(sql_command)
         conn.commit()
         conn.close()
-        print("Database created") 
+        print("Table created") 
     
-    # readDatabase(connect, sqlQuery)
-    def clearTable(self, tableName, rows):
-        # Deletes all rows from the table specified in connect
-        rowDict = dict.fromkeys(rows, [])
-        emptyDF = pd.DataFrame(rowDict)
+    # Deletes all rows from the table
+    def clearTable(self, tableName):
         conn = sqlite3.connect(self.databasePath)
-        emptyDF.to_sql(name = tableName, con = conn, if_exists = 'replace', index = False)       
+        cursor = conn.cursor()    
+        sql_command = """ DELETE FROM {} """.format(tableName) 
+        cursor.execute(sql_command)
         conn.commit()
         conn.close()
+        print("Table cleared")
 
         
-    #removeTable()
+    # function which removes the table (tableName) from the database db
     def removeTable(self, tableName):
-        # function which removes the table (tableName) from the database db
         conn = sqlite3.connect(self.databasePath)
         cursor = conn.cursor()        
         #Remove database
@@ -46,21 +48,19 @@ class Database():
         cursor.execute(sql_command)
         conn.commit()
         conn.close()
-        print("Database removed")
+        print("Table removed")
         
             
-    # addToDatabase()
+    # function which adds data in dataframe to table
     def addToDatabase(self, dataFrame, tableName):
-        # function which adds scraped data to database db
         conn = sqlite3.connect(self.databasePath)
         dataFrame.to_sql(name = tableName, con = conn, if_exists = 'append', index = False)       
         conn.commit()
         conn.close()
     
             
-    # readDatabase(connect, sqlQuery)
+    # Uses the query sqlQuery to read the database
     def readDatabase(self, sqlQuery):
-        # Uses the query sqlQuery to read the database specified in connect
         conn = sqlite3.connect(self.databasePath)               
         dataFrame = pd.read_sql(sqlQuery, conn)
         conn.close()
