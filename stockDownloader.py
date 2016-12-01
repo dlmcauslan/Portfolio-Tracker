@@ -12,7 +12,6 @@ from urllib.request import urlopen
 import pandas as pd
 import re
 import datetime
-from Database import Database
 
 
 # Takes a date string in the format "yyyy-mm-dd" and returns the year, month, day
@@ -27,17 +26,12 @@ def convertToURLDate(date):
         
     return year, month, day
     
-# convertData
-def convertData(datStr):
-    return float("".join(datStr.split(',')))
-
     
 # cleans dataframe data        
 def dataClean(inptFrame):
-#    inptFrame[SC.HISTORICAL_PRICE] = map(convertData, inptFrame[SC.HISTORICAL_PRICE])
     inptFrame[SC.HISTORICAL_DATE] = convertDate(inptFrame[SC.HISTORICAL_DATE].tolist())   
     return inptFrame
-
+    
     
 #takes a date input as a list of strings in the format 'mmm d, yyyy' and converts it to
 #yyyy-mm-dd
@@ -53,6 +47,20 @@ def convertDate(dateString):
         dateString[n] = datetime.date(int(splitDate[2]),int(monthDict[splitDate[1]]),int(splitDate[0])).isoformat() #y,m,d
     return dateString
 
+
+# Takes in a date in the format "yyyy-mm-dd" and increments it by one day. Or if the 
+# day is a Friday, increment by 3 days, so the next day of data we get is the next
+# Monday.
+def incrementDate(dateString):
+    [year, month, day] = dateString.split("-")
+    dateTime = datetime.date(int(year), int(month), int(day))
+    # If the day of the week is a friday increment by 3 days.
+    if dateTime.isoweekday() == 5:
+        datePlus = dateTime + datetime.timedelta(3)
+    else:
+        datePlus = dateTime + datetime.timedelta(1)
+    return str(datePlus)
+    
     
 # Checks whether stock is in database, if not it stockScrape to get all the data.
 # If it is in data base it checks whether the stock information is up to date and only fetches new data
@@ -77,27 +85,34 @@ def updateStockData(stockCode, database):
         sqlQuery = """SELECT {}, max({}) AS Date FROM {} WHERE {} = '{}' GROUP BY {}""" \
         .format(SC.HISTORICAL_CODE, SC.HISTORICAL_DATE, SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_CODE, stockCode, SC.HISTORICAL_CODE)
         
-        y = database.readDatabase(sqlQuery)            
+        y = database.readDatabase(sqlQuery)  
         minDate = y.Date[0]    # minDate is the earliest data of data that the program needs to download
+        # Increment date by 1 day
+        minDate = incrementDate(minDate)
+        
         # Updates stock data
         stockScrape(stockCode, database, minDate)                     
     
     
 # function which does the first time initialization of the stock and 
 #downloads all past stock data, returns array of dates, and array of data
-def stockScrape(stockCode, database, minDate = '1971-01-01'):
+def stockScrape(stockCode, database, minDate = '1900-01-01'):
     # Initialize pandas dataframe to hold stock data    
     stockDataFrame =  pd.DataFrame({SC.HISTORICAL_CODE: [], SC.HISTORICAL_DATE: [], SC.HISTORICAL_PRICE: []});
     # Base URL to download data
     endYear, endMonth, endDay = convertToURLDate(str(datetime.date.today()))
     startYear, startMonth, startDay = convertToURLDate(minDate)
+    
     baseURL = "https://au.finance.yahoo.com/q/hp?s={}&a={}&b={}&c={}&d={}&e={}&f={}&g=d&z=66&y=" \
     .format(stockCode, startMonth, startDay, startYear, endMonth, endDay, endYear)
+#    print(baseURL)
     
     # Putting into a loop to download all pages of data
     done = False
     pageIndex = 0
-       
+    
+    # This loops over the different pages of data. Each page stores at most 66
+    # rows in the table.
     while not done:
         print(pageIndex)
         URLPage = baseURL + str(pageIndex)        
@@ -105,7 +120,7 @@ def stockScrape(stockCode, database, minDate = '1971-01-01'):
         soup = BeautifulSoup(urlopen(URLPage).read(),"lxml")
         table = soup.find('table','yfnc_datamodoutline1')
         #breaks loop if it doesnt find a table
-        if table==None:
+        if table == None:
             done = True
             break                
 
@@ -118,46 +133,22 @@ def stockScrape(stockCode, database, minDate = '1971-01-01'):
                 rowPrice = columns[6].string
                 rowTemp = [stockCode, rowDate, rowPrice]
                 stockDataFrame = stockDataFrame.append(pd.DataFrame([rowTemp], columns = SC.HISTORICAL_COLUMNS), ignore_index=True)
-#                print(rowTemp)
-#        for row in 
-#            tableRow = tableRow.find_next_sibling("tr")
-#            rowDate = tableRow.find("td").string
-#
-#
-#            for td in table.tr.findAll("td"):
-#    #            print(td)
-#    #            print("----------")
-#                if td.string != None:                    
-#                    #Only get stock data
-#                    rowCount = 0
-#                    if 'Dividend' not in td.string and '/' not in td.string and rowCount in [0, 6]:
-#                        rowTemp.append(td.string)
-#                        rowCount += 1
-#                        # Add entire row to dataFrame
-#                        if len(rowTemp)%2 == 0:
-#                            # If date is less than the minimum date then stop getting data
-#                            if convertDate([rowTemp[0]])[0] <= minDate:
-#                                done = True
-#                                break
-#                            rowTemp.append                                
-#                            stockDataFrame = stockDataFrame.append(pd.DataFrame([rowTemp], columns = colName), ignore_index=True)
-#                            #Clear rowTemp
-#                            rowTemp = []
         
-        #increment m
+        #increment pageIndex
         pageIndex += 66
            
     # Cleans the numerical data before saving
     dataClean(stockDataFrame)
-#    print(stockDataFrame)
-
+    
     # Add to SQL database
     database.addToDatabase(stockDataFrame, SC.HISTORICAL_TABLE_NAME)
     
     
     
 ## Testing code
-testPath = '/Users/hplustech/Documents/Canopy/Portfolio Tracker/Databases/test.db'
-testDB = Database(testPath)
-stockScrape("VAP.AX", testDB, "2016-11-10")
-print(testDB.readDatabase('''SELECT * FROM {}'''.format(SC.HISTORICAL_TABLE_NAME)))
+#testPath = '/Users/hplustech/Documents/Canopy/Portfolio Tracker/Databases/test.db'
+#testDB = Database(testPath)
+##testDB.createTable(SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_COLUMN_LIST)
+#updateStockData("VAP.AX", testDB)
+##stockScrape("IJR.AX", testDB, "1990-11-10")
+#print(testDB.readDatabase('''SELECT * FROM {}'''.format(SC.HISTORICAL_TABLE_NAME)))

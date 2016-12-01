@@ -17,12 +17,12 @@ class Database():
       conn = sqlite3.connect(self.databasePath)
       conn.close()
          
-    # function which creates the table (tableName) with the columns in columnList
+    # function which creates the table (tableName) (if it doesn't already exist)
+    # with the columns in columnList
     def createTable(self, tableName, columnList):
         conn = sqlite3.connect(self.databasePath)
         cursor = conn.cursor()        
-        #Created database
-        sql_command = """ CREATE TABLE {} ({}) """.format(tableName, columnList)
+        sql_command = """ CREATE TABLE IF NOT EXISTS {} ({}) """.format(tableName, columnList)
         cursor.execute(sql_command)
         conn.commit()
         conn.close()
