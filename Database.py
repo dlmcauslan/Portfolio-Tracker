@@ -65,4 +65,15 @@ class Database():
         dataFrame = pd.read_sql(sqlQuery, conn)
         conn.close()
         return dataFrame
+        
+    # Executes a custom sql command. Can be used for removing rows etc
+    def executeCommand(self, sql_command):
+        conn = sqlite3.connect(self.databasePath)
+        cursor = conn.cursor()    
+        cursor.execute(sql_command)
+        rowsAffected = cursor.rowcount
+        conn.commit()
+        conn.close()
+        print("Command executed")
+        return rowsAffected
     
