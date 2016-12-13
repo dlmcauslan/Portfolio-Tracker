@@ -41,6 +41,14 @@ Modified 01/12/2016:
     range of dates.
     * Modified contstructor so that it gets the total number of shares owned and
     total amount spent from the data base on initializaiton.
+Modified 02/12/2016:
+    * Added addDividend(), removeDividend() and getDividend() methods, which add
+    a dividend payment to the database, remove a dividend payment from the database, 
+    and retrieve the total amount of dividends recieved up until a date respectively.
+    * Updated str method to include dividend data.
+Modified 05/12/2016:
+    * Added getDividendRange() method.
+    * Updated plot() method to include plotting dividends.
         
     
 """
@@ -50,6 +58,7 @@ import stockContract as SC
 import stockDownloader as downloader
 import seaborn as sns
 import matplotlib.pyplot as plt
+import urllib.request
 
 ###############
 ## Constants ##
@@ -71,28 +80,38 @@ def convertDate(date):
 #               totalCost
 #               stockCode
 #               dataBase
+#               totalDividend
 class Stock:
     numberOwned = 0
     totalCost = 0
+    totalDividend = 0
       
     # Class initializer
     def __init__(self, stockCode, database):
       self.stockCode = stockCode
       self.database = database
       # Updates the database with any price data that it does not have.
-      downloader.updateStockData(self.stockCode, self.database)
-      # Updates the numberOwned and totalCost values
+      try:
+          downloader.updateStockData(self.stockCode, self.database)
+      except urllib.request.URLError:
+          print("{} data not updated. URL Error.".format(self.stockCode))
+              
+      # Updates the numberOwned, totalCost and totalDividend values
       numOwned = self.getOwned()
       if numOwned != None:
           self.numberOwned = numOwned
       amountSpent = self.getSpent()
       if amountSpent != None:
           self.totalCost = amountSpent
+      dividend = self.getDividend()
+      if dividend != None:
+          self.totalDividend = dividend
     
       
     # Class string method
     def __str__(self):
-         return "{} - number owned: {}, total cost: ${:.2f}".format(self.stockCode, self.numberOwned, self.totalCost)
+         return "{} - number owned: {}, total cost: ${:.2f}, total dividend: ${:.2f}." \
+                .format(self.stockCode, self.numberOwned, self.totalCost, self.totalDividend)
 
     
     # Buy a number of stocks at a price and save in the database     
@@ -106,6 +125,7 @@ class Stock:
                                      SC.COST: [price*numberBought]})
         self.database.addToDatabase(purchaseData, SC.TABLE_NAME)
     
+        
     # Sell a number of stocks at a price and save in the database     
     def sell(self, numberSold, price, date = DEFAULT_DATE):
         self.numberOwned -= numberSold
@@ -137,12 +157,44 @@ class Stock:
                     SC.PRICE, price,
                     SC.DATE, date)
         rowsRemoved = self.database.executeCommand(sqlCommand)
+        
+        # Check whether the data removal was succesful. If not, user most likely
+        # made an input error, so throw a ValueError so they know about it.
         if rowsRemoved == 0:
             self.numberOwned += numberBought
             self.totalCost += numberBought*price
             raise ValueError("Purchase of {} shares for ${} on {} was not in database".format(numberBought, price, date))
         
+    
+    # Adds a dividend payment to the dividend database table
+    def addDividend(self, payment, date = DEFAULT_DATE):
+        self.totalDividend += payment
+        dividendData = pd.DataFrame({SC.DIVIDEND_CODE: [self.stockCode],
+                                     SC.DIVIDEND_DATE: [date],
+                                     SC.DIVIDEND_AMOUNT: [payment]})
+        self.database.addToDatabase(dividendData, SC.DIVIDEND_TABLE_NAME)        
+    
         
+    # Removes a divident payment from the dividend database table
+    def removeDividend(self, payment, date):
+        self.totalDividend -= payment
+        sqlCommand = '''DELETE FROM {} 
+            WHERE {} LIKE '{}'
+            AND {} == {}
+            AND {} == date("{}")''' \
+            .format(SC.DIVIDEND_TABLE_NAME, 
+                    SC.DIVIDEND_CODE, self.stockCode,
+                    SC.DIVIDEND_AMOUNT, payment,
+                    SC.DIVIDEND_DATE, date)
+        rowsRemoved = self.database.executeCommand(sqlCommand)
+        
+        # Check whether the data removal was succesful. If not, user most likely
+        # made an input error, so throw a ValueError so they know about it.
+        if rowsRemoved == 0:
+            self.totalDividend += payment
+            raise ValueError("Dividend payment of ${} was not in database".format(payment, date))
+    
+    
     # Get the number of the stock owned at date. Default date is today.
     def getOwned(self, date = DEFAULT_DATE):
         sqlQuery = '''SELECT SUM({}) AS {} FROM {} 
@@ -152,8 +204,10 @@ class Stock:
                     SC.CODE, self.stockCode, 
                     SC.DATE, date)
         data = self.database.readDatabase(sqlQuery)
+        # If data is empty return 0
         if data.empty:
-            raise ValueError(('No data for dates up to {}.'.format(date)))
+            print('No data for dates up to {}.'.format(date))
+            return 0
         return data.get_value(0, SC.TOTAL_OWNED)
         
     
@@ -166,8 +220,10 @@ class Stock:
                     SC.CODE, self.stockCode, 
                     SC.DATE, date)
         data = self.database.readDatabase(sqlQuery)
+        # If data is empty return 0
         if data.empty:
-            raise ValueError(('No data for dates up to {}.'.format(date)))
+            print('No data for dates up to {}.'.format(date))
+            return 0
         return data.get_value(0, SC.TOTAL_SPENT)
     
     
@@ -176,7 +232,9 @@ class Stock:
         sqlQuery = ''' SELECT {} FROM {}
             WHERE {} LIKE '{}'
             AND {} LIKE '{}' ''' \
-            .format(SC.HISTORICAL_PRICE, SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_CODE, self.stockCode, SC.HISTORICAL_DATE, date)
+            .format(SC.HISTORICAL_PRICE, SC.HISTORICAL_TABLE_NAME, 
+                    SC.HISTORICAL_CODE, self.stockCode, 
+                    SC.HISTORICAL_DATE, date)
         data = self.database.readDatabase(sqlQuery)
         # If data is empty raise ValueError
         if data.empty:
@@ -189,6 +247,22 @@ class Stock:
         return self.getOwned(date) * self.getPrice(date)
         
     
+    # Get the total amount of dividend payments at date.
+    def getDividend(self, date = DEFAULT_DATE):
+        sqlQuery = ''' SELECT SUM({}) AS {} FROM {}
+            WHERE {} LIKE '{}'
+            AND {} <= date("{}") ''' \
+            .format(SC.DIVIDEND_AMOUNT, SC.DIVIDEND_TOTAL, SC.DIVIDEND_TABLE_NAME,
+                    SC.DIVIDEND_CODE, self.stockCode,
+                    SC.DIVIDEND_DATE, date)
+        data = self.database.readDatabase(sqlQuery)
+        # If data is empty return 0
+        if data.empty:
+            print(('No dividend data for {}.'.format(date)))
+            return 0
+        return data.get_value(0, SC.DIVIDEND_TOTAL)
+        
+        
     # Get a data fram containing the price of the stock over a range of dates    
     def getPriceRange(self, startDate = DEFAULT_STARTDATE, endDate = DEFAULT_DATE):
         sqlQuery = ''' SELECT {}, {} FROM {}
@@ -274,6 +348,34 @@ class Stock:
         return data
         
 
+    # Gets a dataframe containing the total amount of dividen income over a range of dates    
+    def getDividendRange(self, startDate = DEFAULT_STARTDATE, endDate = DEFAULT_DATE):
+        # Perform a left outer join to get the total number of stocks owned at each
+        # date in the historical data table.
+        sqlQuery = ''' SELECT {}.{}, SUM({}.{}) AS {}, MAX({}.{}) AS {} FROM {}   
+            LEFT OUTER JOIN {} ON {}.{} >= {}.{}
+            AND {}.{} == {}.{}
+            WHERE {}.{} LIKE '{}' 
+            AND {} BETWEEN date("{}") AND date("{}")
+            GROUP BY {} ORDER BY {} ASC''' \
+            .format(SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_DATE, 
+                    SC.DIVIDEND_TABLE_NAME, SC.DIVIDEND_AMOUNT, SC.DIVIDEND_TOTAL, 
+                    SC.DIVIDEND_TABLE_NAME, SC.DIVIDEND_DATE, SC.DIVIDEND_DATE,
+                    SC.HISTORICAL_TABLE_NAME, 
+                    SC.DIVIDEND_TABLE_NAME, SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_DATE, SC.DIVIDEND_TABLE_NAME, SC.DIVIDEND_DATE,
+                    SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_CODE, SC.DIVIDEND_TABLE_NAME, SC.DIVIDEND_CODE,
+                    SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_CODE, self.stockCode,
+                    SC.HISTORICAL_DATE, startDate, endDate,
+                    SC.HISTORICAL_DATE, SC.HISTORICAL_DATE)
+
+        data = self.database.readDatabase(sqlQuery)
+        # Remove the unwanted Purchase_Date column
+        data = data.drop(SC.DIVIDEND_DATE, 1)
+        # For any dates before the first purchase, set the number owned to 0.
+        data = data.fillna(0)
+        return data
+        
+        
     # Plot stock data in a range of dates
     def plot(self, startDate = DEFAULT_STARTDATE, endDate = DEFAULT_DATE):
         # Format data to be plotted
@@ -283,26 +385,41 @@ class Stock:
         owned = self.getOwnedRange(startDate, endDate)[SC.TOTAL_OWNED]
         price = self.getPriceRange(startDate, endDate)[SC.HISTORICAL_PRICE]
         spent = self.getSpentRange(startDate, endDate)[SC.TOTAL_SPENT]
-
+        dividend = self.getDividendRange(startDate, endDate)[SC.DIVIDEND_TOTAL]
 
         # Do plotting
         fig = plt.figure()
-        plt.clf()    
+        plt.clf()  
+        
         ax = fig.add_subplot(411)
         plt.title(self.stockCode, fontsize = 16)
         ax.plot(date, value)
-        plt.ylabel("Value of shares ($)", fontsize = 14)
-        ax = fig.add_subplot(412)
+        ax.plot(date, spent, color = sns.color_palette()[1])
+        plt.ylabel("Amount ($)", fontsize = 14)
+        plt.legend(["Value", "Amount Spent"], loc = "upper left")
+        
+        sns.set_style("dark")
+        ax = fig.add_subplot(412)  
         ax.plot(date, owned)
-        plt.ylabel("Number of shares owned", fontsize = 14)
+        ax.set_ylabel("Number of shares owned", fontsize = 14, color = sns.color_palette()[0])
+        ax2 = ax.twinx()
+        ax2.plot(date, dividend, color = sns.color_palette()[1])
+        ax2.set_ylabel("Total Dividend ($)", fontsize = 14, color = sns.color_palette()[1])
+        ax2.xaxis.grid(True)
+        ax.xaxis.grid(True)
+        
+        sns.set_style("darkgrid")
         ax = fig.add_subplot(413)
         plt.plot(date, price)
         plt.ylabel("Stock price ($)", fontsize = 14)
+        
         ax = fig.add_subplot(414)
         plt.plot(date, value - spent)
+        plt.plot(date, value - spent + dividend)
+        plt.legend(["Share Profit", "Share Profit + Dividend"], loc = "upper left")
         plt.ylabel("Profit ($)", fontsize = 14)
         plt.xlabel("Date", fontsize = 14)
-#        plt.tight_layout()    
+        
         plt.show() 
 
         

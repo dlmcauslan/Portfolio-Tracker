@@ -69,7 +69,7 @@ def updateStockData(stockCode, database):
     sqlQuery = """SELECT {} FROM {} WHERE {} = '{}'; """ \
     .format(SC.HISTORICAL_CODE, SC.HISTORICAL_TABLE_NAME, SC.HISTORICAL_CODE, stockCode)
     
-    print(sqlQuery)
+#    print(sqlQuery)
     stockData = database.readDatabase(sqlQuery)
            
     # Checks whether any previous data has been added for the particular stock code
@@ -130,7 +130,7 @@ def stockScrape(stockCode, database, minDate = '1900-01-01'):
             # This checks if its a data column
             if len(columns) == 7:
                 rowDate = columns[0].string
-                rowPrice = columns[6].string
+                rowPrice = columns[4].string
                 rowTemp = [stockCode, rowDate, rowPrice]
                 stockDataFrame = stockDataFrame.append(pd.DataFrame([rowTemp], columns = SC.HISTORICAL_COLUMNS), ignore_index=True)
         
